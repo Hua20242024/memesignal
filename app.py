@@ -1,42 +1,33 @@
 import streamlit as st
 import requests
 import time
-import os
-import numpy as np
-from datetime import datetime
 import plotly.graph_objects as go
+from datetime import datetime
 
-# Configure audio
-os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-AUDIO_ENABLED = False  # Temporarily disable audio for debugging
-# try:
-#     import pygame
-#     pygame.mixer.init()
-#     AUDIO_ENABLED = True
-# except:
-#     AUDIO_ENABLED = False
+# Configure settings
+API_TIMEOUT = 10
+REFRESH_INTERVAL = 10  # Seconds between updates
 
 def get_meme_coin_data(token_address):
-    """Fetch coin data with better error handling"""
+    """Fetch current price and pair data with error handling"""
     try:
         response = requests.get(
             f"https://api.dexscreener.com/latest/dex/tokens/{token_address}",
-            timeout=10
+            timeout=API_TIMEOUT
         )
         if response.status_code != 200:
             return None
-            
+
         data = response.json()
         if not data.get('pairs'):
             return None
 
-        # Find the pair with highest liquidity
+        # Find the most liquid pair
         valid_pairs = [p for p in data['pairs'] if p.get('priceUsd')]
         if not valid_pairs:
             return None
 
-        main_pair = max(valid_pairs, 
-                       key=lambda x: float(x.get('volumeUsd', 0)))
+        main_pair = max(valid_pairs, key=lambda x: float(x.get('volumeUsd', 0)))
         
         return {
             'price': float(main_pair['priceUsd']),
@@ -50,55 +41,86 @@ def get_meme_coin_data(token_address):
         st.error(f"API Error: {str(e)}")
         return None
 
-@st.cache_data(ttl=10)  # 10-second cache
-def safe_get_coin_data(token_address):
-    """Wrapper with validation"""
-    if not token_address.startswith("0x"):
+def get_historical_data(pair_address):
+    """Fetch price history for charts"""
+    try:
+        response = requests.get(
+            f"https://api.dexscreener.com/latest/dex/pairs/{pair_address}",
+            timeout=API_TIMEOUT
+        )
+        data = response.json()
+        return data.get('pair', {}).get('priceHistory', [])
+    except:
         return None
-    return get_meme_coin_data(token_address)
 
 def main():
     st.set_page_config(page_title="MemeSignal", page_icon="🚀", layout="wide")
     
-    st.title("📈 MemeSignal Alert System")
-    st.caption("Real-time updates every 10 seconds")
-
-    # Input with validation
+    st.title("📈 MemeSignal Price Tracker")
+    st.caption("Live price charts for any meme coin")
+    
+    # Address input with validation
     token_address = st.text_input(
-        "Token Contract Address (0x...)",
-        value="0xdAC17F958D2ee523a2206206994597C13D831ec7",  # Example: USDT
-        help="Must start with 0x and be 42 characters long"
+        "Enter Token Contract Address (0x...)",
+        value="0xdAC17F958D2ee523a2206206994597C13D831ec7",  # Example address
+        help="Must be a valid Ethereum contract address starting with 0x"
     ).strip()
 
-    if len(token_address) != 42 or not token_address.startswith("0x"):
-        st.error("❌ Invalid contract address format")
-        return
+    # Validate address format
+    if not token_address.startswith("0x") or len(token_address) != 42:
+        st.error("⚠️ Invalid contract address format")
+        st.stop()
 
-    # Get data with loading state
-    with st.spinner("Fetching latest data..."):
-        coin_data = safe_get_coin_data(token_address)
-    
+    # Get current data
+    coin_data = get_meme_coin_data(token_address)
     if not coin_data:
-        st.error("Failed to fetch data - check contract address or try again later")
-        return
+        st.error("Failed to fetch coin data - check address or try again later")
+        st.stop()
 
-    # Display section
-    current_price = coin_data['price']
-    timestamp = datetime.now().strftime("%H:%M:%S")
+    # Get historical data
+    history = get_historical_data(coin_data['pair_address'])
+    if not history:
+        st.warning("Could not load price history")
+        st.stop()
+
+    # Process historical data for plotting
+    times = [datetime.fromtimestamp(h['timestamp']/1000) for h in history]
+    prices = [float(h['priceUsd']) for h in history]
+
+    # Create Plotly chart
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=times,
+        y=prices,
+        mode='lines',
+        line=dict(color='#00FF00', width=2),
+        name='Price'
+    ))
     
-    col1, col2 = st.columns([3, 1])
+    fig.update_layout(
+        title=f"{coin_data['base_token']} Price History",
+        xaxis_title='Date/Time',
+        yaxis_title='Price (USD)',
+        template='plotly_dark',
+        hovermode="x unified"
+    )
+
+    # Display metrics and chart
+    col1, col2 = st.columns([2, 1])
     with col1:
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
         st.metric(
-            label=f"Current {coin_data['base_token']} Price",
-            value=f"${current_price:.8f}",
+            label="Current Price",
+            value=f"${coin_data['price']:.8f}",
             delta=f"{coin_data['change_24h']:.2f}% (24h)"
         )
-    with col2:
-        st.caption(f"Last update: {timestamp}")
+        st.write(f"**Pair:** {coin_data['base_token']}/{coin_data['quote_token']}")
+        st.write(f"**Last Updated:** {datetime.now().strftime('%H:%M:%S')}")
 
     # Auto-refresh logic
-    refresh_time = st.slider("Refresh interval (seconds)", 10, 60, 30)
-    time.sleep(refresh_time)
+    time.sleep(REFRESH_INTERVAL)
     st.rerun()
 
 if __name__ == "__main__":
