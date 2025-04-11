@@ -111,12 +111,16 @@ def main():
 
         # ✅ Bell sound
         try:
-            bell_sound_url = "https://www.soundjay.com/button/beep-05.wav"  # Bell sound
+            bell_sound_url = "https://www.soundjay.com/button/beep-05.wav"  # Bell sound URL
             sound_response = requests.get(bell_sound_url)
-            sound_bytes = io.BytesIO(sound_response.content)
+            
+            if sound_response.status_code == 200:
+                sound_bytes = io.BytesIO(sound_response.content)
 
-            # ✅ Play the sound using Streamlit's built-in audio player
-            st.audio(sound_bytes, format="audio/wav", start_time=0)
+                # ✅ Play the sound using Streamlit's built-in audio player
+                st.audio(sound_bytes, format="audio/wav", start_time=0)
+            else:
+                st.warning("🔇 Unable to fetch bell sound.")
         except Exception as e:
             st.warning(f"🔇 Sound alert failed: {str(e)}")
 
