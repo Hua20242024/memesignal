@@ -55,6 +55,19 @@ def get_meme_coin_data(token_address):
         st.error(f"API Error: {str(e)}")
         return None
 
+def get_historical_data(pair_address):
+    """Fetch price history for charts"""
+    try:
+        response = requests.get(
+            f"https://api.dexscreener.com/latest/dex/pairs/{pair_address}",
+            timeout=API_TIMEOUT
+        )
+        data = response.json()
+        return data.get('pair', {}).get('priceHistory', [])
+    except Exception as e:
+        st.error(f"History Error: {str(e)}")
+        return None
+
 def main():
     st.set_page_config(page_title="MemeSignal", page_icon="🚀", layout="wide")
     
@@ -64,7 +77,7 @@ def main():
     # Address input with improved validation
     token_address = st.text_input(
         "Enter Token Contract Address",
-        value="FasH397CeZLNYWkd3wWK9vrmjd1z93n3b59DssRXpump",  # Example Solana address
+        value="FasH397CeZLNYWkd3wWK9vrmjd1z93n3b59DssRXpump",
         help="Ethereum: 0x... (42 chars) | Solana: Base58 (44 chars)"
     ).strip()
 
@@ -83,6 +96,9 @@ def main():
     # Display data
     st.success(f"✅ Tracking {coin_data['base_token']} on {coin_data['chain'].capitalize()}")
     
+    # Get historical data
+    history = get_historical_data(coin_data['pair_address'])
+    
     col1, col2 = st.columns([3, 1])
     with col1:
         # Display metric
@@ -92,22 +108,25 @@ def main():
             delta=f"{coin_data['change_24h']:.2f}% (24h)"
         )
         
-        # Get historical data
-        history = get_historical_data(coin_data['pair_address'])
+        # Display chart if history available
         if history:
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=[datetime.fromtimestamp(h['timestamp']/1000) for h in history],
                 y=[float(h['priceUsd']) for h in history],
                 mode='lines',
-                line=dict(color='#00FF00' if coin_data['price'] > 0 else 'red'),
+                line=dict(color='#00FF00'),
                 name='Price'
             ))
             fig.update_layout(
                 title=f"{coin_data['base_token']} Price History",
-                template='plotly_dark'
+                template='plotly_dark',
+                xaxis_title='Time',
+                yaxis_title='Price (USD)'
             )
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No historical data available")
 
     with col2:
         st.write(f"**Chain:** {coin_data['chain'].capitalize()}")
