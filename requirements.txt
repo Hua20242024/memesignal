@@ -5,3 +5,4 @@ plotly==5.18.0
 python-dotenv==1.0.0
 numpy==1.26.0  # Add this new line
 base58
+base64
