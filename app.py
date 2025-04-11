@@ -4,6 +4,7 @@ import time
 import plotly.graph_objects as go
 from datetime import datetime
 import base58  # ✅ Added for better Solana validation
+import io
 
 # Configure settings
 API_TIMEOUT = 10
@@ -107,12 +108,17 @@ def main():
     # ✅ Show alert
     if trigger_alert:
         st.error(alert_message)
-        alert_sound = """
-        <audio autoplay>
-            <source src="https://www.soundjay.com/button/beep-07.wav" type="audio/wav">
-        </audio>
-        """
-        st.markdown(alert_sound, unsafe_allow_html=True)
+
+        # ✅ Bell sound
+        try:
+            bell_sound_url = "https://www.soundjay.com/button/beep-05.wav"  # Bell sound
+            sound_response = requests.get(bell_sound_url)
+            sound_bytes = io.BytesIO(sound_response.content)
+
+            # ✅ Play the sound using Streamlit's built-in audio player
+            st.audio(sound_bytes, format="audio/wav", start_time=0)
+        except Exception as e:
+            st.warning(f"🔇 Sound alert failed: {str(e)}")
 
     col1, col2 = st.columns([3, 1])
     with col1:
