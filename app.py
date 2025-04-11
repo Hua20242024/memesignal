@@ -1,15 +1,41 @@
-import streamlit as st
-import requests
-import time
-import plotly.graph_objects as go
-from datetime import datetime
-import base58  # ✅ Added for better Solana validation
+import base64
 import io
+import requests
+import streamlit as st
+import time
+from datetime import datetime
 
-# Configure settings
-API_TIMEOUT = 10
-REFRESH_INTERVAL = 10  # Seconds between updates
+# Function to fetch the sound file (e.g., a bell sound)
+def get_bell_sound():
+    sound_url = "https://www.soundjay.com/button/beep-05.wav"  # Bell sound URL
+    response = requests.get(sound_url)
+    if response.status_code == 200:
+        return io.BytesIO(response.content)
+    else:
+        st.warning("🔇 Unable to fetch bell sound.")
+        return None
 
+# Function to play the sound for 5 seconds using HTML and JavaScript
+def play_alert_sound():
+    sound_file = get_bell_sound()
+    if sound_file:
+        sound_base64 = base64.b64encode(sound_file.read()).decode('utf-8')
+        
+        sound_html = f'''
+        <audio id="alert-sound" autoplay>
+            <source src="data:audio/wav;base64,{sound_base64}" type="audio/wav">
+        </audio>
+        <script>
+            setTimeout(function() {{
+                var sound = document.getElementById('alert-sound');
+                sound.pause();  // Stop the sound
+                sound.currentTime = 0;  // Reset to the beginning
+            }}, 5000);  // Stop after 5000 milliseconds (5 seconds)
+        </script>
+        '''
+        st.markdown(sound_html, unsafe_allow_html=True)
+
+# Function to validate Ethereum or Solana addresses
 def is_valid_address(address):
     """Detect Ethereum or Solana address format"""
     if address.startswith("0x") and len(address) == 42:
@@ -22,15 +48,15 @@ def is_valid_address(address):
         pass
     return False
 
+# Function to fetch meme coin data
 def get_meme_coin_data(token_address):
-    """Fetch data for both Ethereum and Solana tokens"""
     chain = is_valid_address(token_address)
     if not chain:
         return None
 
     try:
         url = f"https://api.dexscreener.com/latest/dex/tokens/{token_address}"
-        response = requests.get(url, timeout=API_TIMEOUT)
+        response = requests.get(url, timeout=10)
 
         if response.status_code != 200:
             return None
@@ -60,6 +86,7 @@ def get_meme_coin_data(token_address):
         st.error(f"API Error: {str(e)}")
         return None
 
+# Main Streamlit function
 def main():
     st.set_page_config(page_title="MemeSignal", page_icon="🚀", layout="wide")
 
@@ -108,26 +135,7 @@ def main():
     # ✅ Show alert
     if trigger_alert:
         st.error(alert_message)
-
-        # ✅ Bell sound (Autoplay)
-        try:
-            bell_sound_url = "https://www.soundjay.com/button/beep-05.wav"  # Bell sound URL
-            sound_response = requests.get(bell_sound_url)
-            
-            if sound_response.status_code == 200:
-                # Embed audio into the page with autoplay using HTML
-                sound_bytes = io.BytesIO(sound_response.content)
-                sound_base64 = base64.b64encode(sound_bytes.getvalue()).decode('utf-8')
-                sound_html = f'''
-                    <audio autoplay>
-                        <source src="data:audio/wav;base64,{sound_base64}" type="audio/wav">
-                    </audio>
-                '''
-                st.markdown(sound_html, unsafe_allow_html=True)
-            else:
-                st.warning("🔇 Unable to fetch bell sound.")
-        except Exception as e:
-            st.warning(f"🔇 Sound alert failed: {str(e)}")
+        play_alert_sound()  # Play sound for 5 seconds
 
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -141,8 +149,8 @@ def main():
         st.write(f"**Trading Pair:** {coin_data['base_token']}/{coin_data['quote_token']}")
         st.write(f"**Last Updated:** {datetime.now().strftime('%H:%M:%S')}")
 
-    # Refresh loop
-    time.sleep(REFRESH_INTERVAL)
+    # Auto-refresh every 10 seconds
+    time.sleep(10)
     st.rerun()
 
 if __name__ == "__main__":
