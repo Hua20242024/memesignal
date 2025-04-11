@@ -1,6 +1,7 @@
 import base64
 import io
 import requests
+import base58  # Make sure this is installed using pip install base58
 import streamlit as st
 import time
 from datetime import datetime
@@ -41,8 +42,9 @@ def is_valid_address(address):
     if address.startswith("0x") and len(address) == 42:
         return "ethereum"
     try:
+        # Try to decode Solana address (Base58)
         decoded = base58.b58decode(address)
-        if 32 <= len(decoded) <= 64:
+        if len(decoded) == 32:  # Solana addresses are 32 bytes
             return "solana"
     except Exception:
         pass
