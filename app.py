@@ -6,136 +6,100 @@ import numpy as np
 from datetime import datetime
 import plotly.graph_objects as go
 
-# Configure audio (same as before)
+# Configure audio
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
-try:
-    import pygame
-    pygame.mixer.init()
-    AUDIO_ENABLED = True
-except:
-    AUDIO_ENABLED = False
+AUDIO_ENABLED = False  # Temporarily disable audio for debugging
+# try:
+#     import pygame
+#     pygame.mixer.init()
+#     AUDIO_ENABLED = True
+# except:
+#     AUDIO_ENABLED = False
 
-def generate_beep():
-    sample_rate = 44100
-    duration = 0.3
-    freq = 880    
-    t = np.linspace(0, duration, int(sample_rate * duration), False)
-    wave = np.sin(2 * np.pi * freq * t)
-    return np.int16(wave * 32767)
+def get_meme_coin_data(token_address):
+    """Fetch coin data with better error handling"""
+    try:
+        response = requests.get(
+            f"https://api.dexscreener.com/latest/dex/tokens/{token_address}",
+            timeout=10
+        )
+        if response.status_code != 200:
+            return None
+            
+        data = response.json()
+        if not data.get('pairs'):
+            return None
 
-def play_alert_sound():
-    if AUDIO_ENABLED:
-        try:
-            beep_sound = pygame.mixer.Sound(buffer=generate_beep())
-            beep_sound.play()
-        except:
-            st.toast("🔔 Price Alert!", icon="⚠️")
-    else:
-        st.toast("🔔 Price Alert!", icon="⚠️")
+        # Find the pair with highest liquidity
+        valid_pairs = [p for p in data['pairs'] if p.get('priceUsd')]
+        if not valid_pairs:
+            return None
 
-# Add cached data fetcher with 5-second refresh
-@st.cache_data(ttl=5)  # Auto-refresh every 5 seconds
-def get_cached_coin_data(token_address):
+        main_pair = max(valid_pairs, 
+                       key=lambda x: float(x.get('volumeUsd', 0)))
+        
+        return {
+            'price': float(main_pair['priceUsd']),
+            'pair_address': main_pair['pairAddress'],
+            'base_token': main_pair['baseToken']['symbol'],
+            'quote_token': main_pair['quoteToken']['symbol'],
+            'change_24h': float(main_pair.get('priceChange', {}).get('h24', 0))
+        }
+
+    except Exception as e:
+        st.error(f"API Error: {str(e)}")
+        return None
+
+@st.cache_data(ttl=10)  # 10-second cache
+def safe_get_coin_data(token_address):
+    """Wrapper with validation"""
+    if not token_address.startswith("0x"):
+        return None
     return get_meme_coin_data(token_address)
-
-@st.cache_data(ttl=30)  # Refresh historical data every 30 seconds
-def get_cached_history(pair_address):
-    return get_historical_data(pair_address)
-
-# Keep existing get_meme_coin_data and get_historical_data functions
 
 def main():
     st.set_page_config(page_title="MemeSignal", page_icon="🚀", layout="wide")
     
     st.title("📈 MemeSignal Alert System")
-    st.caption("Real-time updates every 5 seconds")
-    
-    # Input section
+    st.caption("Real-time updates every 10 seconds")
+
+    # Input with validation
     token_address = st.text_input(
-        "Token Contract Address",
-        value="FasH397CeZLNYWkd3wWK9vrmjd1z93n3b59DssRXpump",
-        help="Paste the full contract address from DexScreener"
-    )
+        "Token Contract Address (0x...)",
+        value="0xdAC17F958D2ee523a2206206994597C13D831ec7",  # Example: USDT
+        help="Must start with 0x and be 42 characters long"
+    ).strip()
+
+    if len(token_address) != 42 or not token_address.startswith("0x"):
+        st.error("❌ Invalid contract address format")
+        return
+
+    # Get data with loading state
+    with st.spinner("Fetching latest data..."):
+        coin_data = safe_get_coin_data(token_address)
     
-    if token_address:
-        # Get fresh data using cached function
-        coin_data = get_cached_coin_data(token_address)
-        
-        if coin_data:
-            # Display auto-updating price
-            current_price = coin_data['price']
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            
-            col1, col2, col3 = st.columns([2,2,1])
-            with col1:
-                st.metric(
-                    label=f"Current {coin_data['base_token']} Price",
-                    value=f"${current_price:.8f}",
-                    delta=f"{coin_data['change_24h']:.2f}% (24h)"
-                )
-            with col3:
-                st.caption(f"Last update: {timestamp}")
-            
-            # Auto-updating chart
-            history = get_cached_history(coin_data['pair_address'])
-            if history:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=[datetime.fromtimestamp(h['timestamp']/1000) for h in history],
-                    y=[float(h['priceUsd']) for h in history],
-                    mode='lines',
-                    line=dict(color='#00ff88', width=2),
-                    name='Price'
-                ))
-                fig.update_layout(
-                    title=f"{coin_data['base_token']} Price History",
-                    xaxis_title='Time',
-                    yaxis_title='Price (USD)',
-                    template='plotly_dark'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            
-            # Alert system
-            with st.expander("⚡ Active Alerts", expanded=True):
-                alert_price = st.number_input(
-                    "Alert Price (USD)",
-                    min_value=0.00000001,
-                    value=current_price * 1.1,
-                    format="%.8f",
-                    key="alert_price"
-                )
-                alert_condition = st.radio(
-                    "Trigger when:",
-                    ("Price Goes Above", "Price Goes Below"),
-                    horizontal=True,
-                    key="alert_condition"
-                )
-                
-                if st.button("💥 Activate Alert"):
-                    st.session_state['alert'] = {
-                        'price': alert_price,
-                        'condition': alert_condition,
-                        'token': coin_data['base_token'],
-                        'active': True
-                    }
-                
-                if 'alert' in st.session_state:
-                    st.success(f"Active alert for {st.session_state['alert']['token']}")
-                    condition_met = (
-                        (st.session_state['alert']['condition'] == "Price Goes Above" 
-                         and current_price > st.session_state['alert']['price']) or
-                        (st.session_state['alert']['condition'] == "Price Goes Below" 
-                         and current_price < st.session_state['alert']['price'])
-                    )
-                    
-                    if condition_met:
-                        play_alert_sound()
-                        st.error(f"🚨 ALERT TRIGGERED AT ${current_price:.8f}")
-                        st.session_state.pop('alert')
-            
-            # Force refresh every 5 seconds
-            time.sleep(5)
-            st.rerun()
+    if not coin_data:
+        st.error("Failed to fetch data - check contract address or try again later")
+        return
+
+    # Display section
+    current_price = coin_data['price']
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.metric(
+            label=f"Current {coin_data['base_token']} Price",
+            value=f"${current_price:.8f}",
+            delta=f"{coin_data['change_24h']:.2f}% (24h)"
+        )
+    with col2:
+        st.caption(f"Last update: {timestamp}")
+
+    # Auto-refresh logic
+    refresh_time = st.slider("Refresh interval (seconds)", 10, 60, 30)
+    time.sleep(refresh_time)
+    st.rerun()
 
 if __name__ == "__main__":
     main()
